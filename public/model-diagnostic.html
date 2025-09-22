@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Диагностика 3D модели</title>
+    <script type="module" src="https://unpkg.com/@google/model-viewer@3.0.2/dist/model-viewer.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 50%;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #333;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        model-viewer {
+            width: 100%;
+            height: 100vh;
+        }
+        .material-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #333;
+            border-radius: 4px;
+        }
+        .texture-item {
+            margin-left: 20px;
+            margin-bottom: 5px;
+        }
+        h3 {
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="info-panel">
+        <h2>Диагностика 3D модели</h2>
+        <div id="model-info">Загрузка данных о модели...</div>
+    </div>
+
+    <model-viewer
+        id="viewer"
+        src="models/anime_girl.glb"
+        camera-controls
+        exposure="1.2"
+        shadow-intensity="1"
+        style="background-color: #333;"
+    ></model-viewer>
+
+    <script type="module">
+        const modelViewer = document.getElementById('viewer');
+        const modelInfo = document.getElementById('model-info');
+
+        modelViewer.addEventListener('load', async () => {
+            const model = modelViewer.model;
+            if (!model) {
+                modelInfo.innerHTML = '<p style="color: red;">Ошибка: Модель не загружена</p>';
+                return;
+            }
+
+            // Базовая информация о модели
+            let infoHTML = `<h3>Основная информация</h3>`;
+
+            // Проверяем сцену
+            const scene = model.scene;
+            if (scene) {
+                infoHTML += `<p>Модель содержит сцену</p>`;
+            }
+
+            // Проверяем материалы
+            const materials = model.materials || [];
+            infoHTML += `<h3>Материалы (${materials.length})</h3>`;
+
+            if (materials.length === 0) {
+                infoHTML += `<p style="color: orange;">Предупреждение: В модели нет материалов</p>`;
+            } else {
+                // Для каждого материала выводим подробную информацию
+                materials.forEach((material, index) => {
+                    infoHTML += `<div class="material-item">`;
+                    infoHTML += `<strong>Материал ${index}: ${material.name || 'Без имени'}</strong><br>`;
+
+                    // Проверяем PBR настройки
+                    if (material.pbrMetallicRoughness) {
+                        const pbr = material.pbrMetallicRoughness;
+
+                        // Базовый цвет
+                        if (pbr.baseColorFactor) {
+                            const color = pbr.baseColorFactor;
+                            infoHTML += `<div class="texture-item">Базовый цвет: RGB(${Math.round(color[0]*255)}, ${Math.round(color[1]*255)}, ${Math.round(color[2]*255)}), Alpha: ${color[3]}</div>`;
+                        }
+
+                        // Текстура базового цвета - с безопасной проверкой вложенных свойств
+                        if (pbr.baseColorTexture) {
+                            // Безопасная проверка наличия texture и source
+                            const textureSource = pbr.baseColorTexture.texture &&
+                                                 pbr.baseColorTexture.texture.source ?
+                                                 pbr.baseColorTexture.texture.source.uri || 'Встроенная' :
+                                                 'Неизвестно';
+                            infoHTML += `<div class="texture-item" style="color: green;">✓ Базовая текстура: ${textureSource}</div>`;
+                        } else {
+                            infoHTML += `<div class="texture-item" style="color: red;">✗ Базовая текстура отсутствует</div>`;
+                        }
+
+                        // Металличность и шероховатость
+                        infoHTML += `<div class="texture-item">Металличность: ${pbr.metallicFactor !== undefined ? pbr.metallicFactor : 'Не определено'}</div>`;
+                        infoHTML += `<div class="texture-item">Шероховатость: ${pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 'Не определено'}</div>`;
+
+                        // Текстура металличности/шероховатости - с безопасной проверкой
+                        if (pbr.metallicRoughnessTexture) {
+                            const textureSource = pbr.metallicRoughnessTexture.texture &&
+                                                 pbr.metallicRoughnessTexture.texture.source ?
+                                                 pbr.metallicRoughnessTexture.texture.source.uri || 'Встроенная' :
+                                                 'Неизвестно';
+                            infoHTML += `<div class="texture-item" style="color: green;">✓ Текстура металличности/шероховатости: ${textureSource}</div>`;
+                        } else {
+                            infoHTML += `<div class="texture-item" style="color: orange;">○ Текстура металличности/шероховатости отсутствует</div>`;
+                        }
+                    }
+
+                    // Нормали - с безопасной проверкой
+                    if (material.normalTexture) {
+                        const textureSource = material.normalTexture.texture &&
+                                             material.normalTexture.texture.source ?
+                                             material.normalTexture.texture.source.uri || 'Встроенная' :
+                                             'Неизвестно';
+                        infoHTML += `<div class="texture-item" style="color: green;">✓ Карта нормалей: ${textureSource}</div>`;
+                    } else {
+                        infoHTML += `<div class="texture-item" style="color: orange;">○ Карта нормалей отсутствует</div>`;
+                    }
+
+                    // Окклюзия - с безопасной проверкой
+                    if (material.occlusionTexture) {
+                        const textureSource = material.occlusionTexture.texture &&
+                                             material.occlusionTexture.texture.source ?
+                                             material.occlusionTexture.texture.source.uri || 'Встроенная' :
+                                             'Неизвестно';
+                        infoHTML += `<div class="texture-item" style="color: green;">✓ Карта окклюзии: ${textureSource}</div>`;
+                    } else {
+                        infoHTML += `<div class="texture-item" style="color: orange;">○ Карта окклюзии отсутствует</div>`;
+                    }
+
+                    // Эмиссия - с безопасной проверкой
+                    if (material.emissiveTexture) {
+                        const textureSource = material.emissiveTexture.texture &&
+                                             material.emissiveTexture.texture.source ?
+                                             material.emissiveTexture.texture.source.uri || 'Встроенная' :
+                                             'Неизвестно';
+                        infoHTML += `<div class="texture-item" style="color: green;">✓ Карта свечения: ${textureSource}</div>`;
+                    } else {
+                        infoHTML += `<div class="texture-item" style="color: orange;">○ Карта свечения отсутствует</div>`;
+                    }
+
+                    // Проверка режима альфа-смешивания
+                    infoHTML += `<div class="texture-item">Режим прозрачности: ${material.alphaMode || 'OPAQUE'}</div>`;
+
+                    // Проверка двусторонности материала
+                    infoHTML += `<div class="texture-item">Двусторонний материал: ${material.doubleSided ? 'Да' : 'Нет'}</div>`;
+
+                    infoHTML += `</div>`;
+                });
+            }
+
+            // Проверяем анимации
+            const animations = modelViewer.availableAnimations || [];
+            infoHTML += `<h3>Анимации (${animations.length})</h3>`;
+            if (animations.length > 0) {
+                animations.forEach((anim, index) => {
+                    infoHTML += `<p>Анимация ${index}: ${anim}</p>`;
+                });
+            } else {
+                infoHTML += `<p>Анимации отсутствуют</p>`;
+            }
+
+            // Добавляем прямой вывод структуры модели для более детального анализа
+            infoHTML += `<h3>Детальная структура (debug)</h3>`;
+            infoHTML += `<button id="showDebug" style="padding: 5px 10px; background-color: #555; border: none; color: white; border-radius: 4px; cursor: pointer;">Показать подробности</button>`;
+            infoHTML += `<pre id="debugInfo" style="display: none;"></pre>`;
+
+            modelInfo.innerHTML = infoHTML;
+
+            // Обработчик для кнопки отладки
+            document.getElementById('showDebug').addEventListener('click', function() {
+                const debugInfo = document.getElementById('debugInfo');
+                if (debugInfo.style.display === 'none') {
+                    // Создаем безопасную копию объекта для JSON.stringify
+                    const safeCopy = {};
+
+                    // Копируем только основные свойства материалов
+                    if (model.materials) {
+                        safeCopy.materials = model.materials.map(mat => ({
+                            name: mat.name,
+                            alphaMode: mat.alphaMode,
+                            doubleSided: mat.doubleSided,
+                            hasPbrMetallicRoughness: !!mat.pbrMetallicRoughness,
+                            hasNormalTexture: !!mat.normalTexture,
+                            hasOcclusionTexture: !!mat.occlusionTexture,
+                            hasEmissiveTexture: !!mat.emissiveTexture
+                        }));
+                    }
+
+                    // Копируем информацию об анимациях
+                    safeCopy.animations = animations;
+
+                    // Отображаем информацию
+                    debugInfo.textContent = JSON.stringify(safeCopy, null, 2);
+                    debugInfo.style.display = 'block';
+                    this.textContent = 'Скрыть подробности';
+                } else {
+                    debugInfo.style.display = 'none';
+                    this.textContent = 'Показать подробности';
+                }
+            });
+        });
+
+        modelViewer.addEventListener('error', (error) => {
+            console.error('Ошибка загрузки модели:', error);
+            modelInfo.innerHTML = `
+                <h3>Ошибка загрузки модели</h3>
+                <p style="color: red;">${error.detail?.sourceError?.message || 'Неизвестная ошибка'}</p>
+            `;
+        });
+    </script>
+</body>
+</html>

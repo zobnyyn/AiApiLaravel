@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Просмотр 3D модели (glTF и GLB)</title>
+    <script type="module" src="https://unpkg.com/@google/model-viewer@3.1.1/dist/model-viewer.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            max-width: 300px;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            border-radius: 5px;
+        }
+        input[type="range"] {
+            margin: 10px 0;
+        }
+        button {
+            padding: 8px 15px;
+            background: linear-gradient(to right, #4d4dff, #9494ff);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background: linear-gradient(to right, #3d3dff, #8484ff);
+        }
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            color: #fff;
+            z-index: 10;
+        }
+        .file-drop {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            width: 300px;
+        }
+        .drop-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .drop-zone:hover, .drop-zone.active {
+            border-color: rgba(77, 77, 255, 0.8);
+            background-color: rgba(77, 77, 255, 0.1);
+        }
+        .file-input {
+            display: none;
+        }
+        .model-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        .tab {
+            padding: 8px 15px;
+            background-color: rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            margin-right: 2px;
+        }
+        .tab.active {
+            background-color: rgba(77, 77, 255, 0.5);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">Загрузка 3D модели...</div>
+
+    <div class="file-drop">
+        <div class="tabs">
+            <div class="tab active" data-tab="drop">Загрузка файла</div>
+            <div class="tab" data-tab="examples">Примеры</div>
+        </div>
+
+        <div class="tab-content active" data-tab-content="drop">
+            <div class="drop-zone" id="drop-zone">
+                <p>Перетащите сюда файл модели<br>(.glb или .gltf)</p>
+                <p>или нажмите для выбора файла</p>
+                <input type="file" class="file-input" id="file-input" accept=".glb,.gltf">
+            </div>
+
+            <div class="model-info" id="model-info">
+                Модель не загружена
+            </div>
+        </div>
+
+        <div class="tab-content" data-tab-content="examples">
+            <p>Выберите пример модели:</p>
+            <select id="example-models" class="example-select">
+                <option value="">Выберите модель...</option>
+                <option value="models/anime_girl.glb">Аниме девочка (GLB)</option>
+                <!-- Можно добавить больше примеров glTF моделей -->
+            </select>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <div class="control-label">Материал</div>
+            <select id="material-select">
+                <option value="">Выберите материал...</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Основной цвет</div>
+            <input type="color" id="color-picker" value="#ffffff">
+            <button id="apply-color">Применить цвет</button>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Прозрачность: <span id="alpha-value">1.0</span></div>
+            <input type="range" id="alpha-slider" min="0" max="1" step="0.01" value="1">
+            <button id="apply-alpha">Применить прозрачность</button>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Металличность: <span id="metallic-value">0</span></div>
+            <input type="range" id="metallic-slider" min="0" max="1" step="0.01" value="0">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Шероховатость: <span id="roughness-value">0.5</span></div>
+            <input type="range" id="roughness-slider" min="0" max="1" step="0.01" value="0.5">
+        </div>
+
+        <div class="control-group">
+            <button id="apply-material-changes">Применить изменения</button>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Общая экспозиция: <span id="exposure-value">1.2</span></div>
+            <input type="range" id="exposure-slider" min="0" max="3" step="0.1" value="1.2">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Фон</div>
+            <select id="environment-select">
+                <option value="neutral">Нейтральный</option>
+                <option value="legacy">Классический</option>
+                <option value="sunset">Закат</option>
+                <option value="">Пустой</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Режим отображения</div>
+            <select id="variant-select">
+                <option value="">Стандартный</option>
+                <option value="wireframe">Каркас</option>
+                <option value="normals">Normal maps</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <button id="reset-all-button">Сбросить все материалы</button>
+        </div>
+    </div>
+
+    <div class="instructions">
+        <p>Управление: левая кнопка мыши - вращение, колесо - масштаб, правая кнопка - перемещение</p>
+    </div>
+
+    <model-viewer
+        id="model"
+        camera-controls
+        exposure="1.2"
+        camera-orbit="0deg 75deg 105%"
+        auto-rotate="false"
+        shadow-intensity="1"
+        environment-image="neutral"
+        shadow-softness="1"
+        tone-mapping="aces"
+        field-of-view="30deg"
+        min-camera-orbit="auto auto 50%"
+        max-camera-orbit="auto auto 400%"
+        style="width: 100%; height: 100vh; background-color: #1a1a1a;"
+    ></model-viewer>
+
+    <script>
+        const modelViewer = document.getElementById('model');
+        const materialSelect = document.getElementById('material-select');
+        const colorPicker = document.getElementById('color-picker');
+        const alphaSlider = document.getElementById('alpha-slider');
+        const alphaValue = document.getElementById('alpha-value');
+        const metallicSlider = document.getElementById('metallic-slider');
+        const metallicValue = document.getElementById('metallic-value');
+        const roughnessSlider = document.getElementById('roughness-slider');
+        const roughnessValue = document.getElementById('roughness-value');
+        const exposureSlider = document.getElementById('exposure-slider');
+        const exposureValue = document.getElementById('exposure-value');
+        const environmentSelect = document.getElementById('environment-select');
+        const variantSelect = document.getElementById('variant-select');
+        const applyColorButton = document.getElementById('apply-color');
+        const applyAlphaButton = document.getElementById('apply-alpha');
+        const applyMaterialChangesButton = document.getElementById('apply-material-changes');
+        const resetAllButton = document.getElementById('reset-all-button');
+        const loadingIndicator = document.getElementById('loading');
+        const modelInfo = document.getElementById('model-info');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const exampleModels = document.getElementById('example-models');
+
+        // Хранилище для исходных данных материалов
+        const originalMaterials = {};
+
+        // Переключение табов
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.getAttribute('data-tab');
+
+                // Активация таба
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Активация содержимого таба
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.querySelector(`.tab-content[data-tab-content="${tabName}"]`).classList.add('active');
+            });
+        });
+
+        // Функция для преобразования RGB в HEX
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(x => {
+                const hex = Math.round(x * 255).toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            }).join('');
+        }
+
+        // Функция для преобразования HEX в RGB
+        function hexToRgb(hex) {
+            // Удаляем # если есть
+            hex = hex.replace(/^#/, '');
+
+            // Парсим компоненты
+            let bigint = parseInt(hex, 16);
+            let r = (bigint >> 16) & 255;
+            let g = (bigint >> 8) & 255;
+            let b = bigint & 255;
+
+            // Преобразуем в диапазон 0-1 для THREE.js
+            return [r / 255, g / 255, b / 255];
+        }
+
+        // Обработчик изменения цвета
+        colorPicker.addEventListener('input', function() {
+            colorValue.textContent = this.value.toUpperCase();
+        });
+
+        // Обработчики изменения слайдеров
+        alphaSlider.addEventListener('input', function() {
+            alphaValue.textContent = parseFloat(this.value).toFixed(2);
+        });
+
+        metallicSlider.addEventListener('input', function() {
+            metallicValue.textContent = parseFloat(this.value).toFixed(2);
+        });
+
+        roughnessSlider.addEventListener('input', function() {
+            roughnessValue.textContent = parseFloat(this.value).toFixed(2);
+        });
+
+        exposureSlider.addEventListener('input', function() {
+            const value = parseFloat(this.value).toFixed(1);
+            exposureValue.textContent = value;
+            modelViewer.exposure = value;
+        });
+
+        // Обработчик изменения фона
+        environmentSelect.addEventListener('change', function() {
+            modelViewer.environmentImage = this.value;
+        });
+
+        // Обработчик изменения режима отображения
+        variantSelect.addEventListener('change', function() {
+            modelViewer.variantName = this.value;
+        });
+
+        // Применение цвета к материалу
+        applyColorButton.addEventListener('click', function() {
+            const selectedMaterial = materialSelect.value;
+            if (!selectedMaterial) {
+                alert('Выберите материал');
+                return;
+            }
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material) {
+                const [r, g, b] = hexToRgb(colorPicker.value);
+                material.pbrMetallicRoughness.setBaseColorFactor([r, g, b, parseFloat(alphaSlider.value)]);
+                console.log(`Применен цвет ${colorPicker.value} к материалу ${selectedMaterial}`);
+            }
+        });
+
+        // Применение прозрачности к материалу
+        applyAlphaButton.addEventListener('click', function() {
+            const selectedMaterial = materialSelect.value;
+            if (!selectedMaterial) {
+                alert('Выберите материал');
+                return;
+            }
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material) {
+                const baseColorFactor = material.pbrMetallicRoughness.baseColorFactor;
+                const alpha = parseFloat(alphaSlider.value);
+
+                // Если альфа меньше 1, устанавливаем режим прозрачности BLEND
+                if (alpha < 1.0) {
+                    material.setAlphaMode('BLEND');
+                } else {
+                    material.setAlphaMode('OPAQUE');
+                }
+
+                // Обновляем альфа-компонент в цвете
+                if (baseColorFactor) {
+                    material.pbrMetallicRoughness.setBaseColorFactor(
+                        [baseColorFactor[0], baseColorFactor[1], baseColorFactor[2], alpha]
+                    );
+                }
+
+                console.log(`Применена прозрачность ${alpha} к материалу ${selectedMaterial}`);
+            }
+        });
+
+        // Применение всех изменений к материалу
+        applyMaterialChangesButton.addEventListener('click', function() {
+            const selectedMaterial = materialSelect.value;
+            if (!selectedMaterial) {
+                alert('Выберите материал');
+                return;
+            }
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material) {
+                // Получаем текущий цвет материала
+                const currentColor = material.pbrMetallicRoughness.baseColorFactor || [1, 1, 1, 1];
+                const [r, g, b] = hexToRgb(colorPicker.value);
+                const alpha = parseFloat(alphaSlider.value);
+                const metallic = parseFloat(metallicSlider.value);
+                const roughness = parseFloat(roughnessSlider.value);
+
+                // Если альфа меньше 1, устанавливаем режим прозрачности BLEND
+                if (alpha < 1.0) {
+                    material.setAlphaMode('BLEND');
+                } else {
+                    material.setAlphaMode('OPAQUE');
+                }
+
+                // Применяем все изменения
+                material.pbrMetallicRoughness.setBaseColorFactor([r, g, b, alpha]);
+                material.pbrMetallicRoughness.setMetallicFactor(metallic);
+                material.pbrMetallicRoughness.setRoughnessFactor(roughness);
+
+                console.log(`Применены все изменения к материалу ${selectedMaterial}`);
+            }
+        });
+
+        // Обработчик изменения выбора материала
+        materialSelect.addEventListener('change', function() {
+            const selectedMaterial = this.value;
+            if (!selectedMaterial) return;
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material && material.pbrMetallicRoughness) {
+                // Обновляем цвет
+                if (material.pbrMetallicRoughness.baseColorFactor) {
+                    const [r, g, b, a] = material.pbrMetallicRoughness.baseColorFactor;
+                    colorPicker.value = rgbToHex(r, g, b);
+                    // colorValue.textContent = colorPicker.value.toUpperCase();
+                    alphaSlider.value = a;
+                    alphaValue.textContent = a.toFixed(2);
+                }
+
+                // Обновляем металличность и шероховатость
+                if (material.pbrMetallicRoughness.metallicFactor !== undefined) {
+                    metallicSlider.value = material.pbrMetallicRoughness.metallicFactor;
+                    metallicValue.textContent = material.pbrMetallicRoughness.metallicFactor.toFixed(2);
+                }
+
+                if (material.pbrMetallicRoughness.roughnessFactor !== undefined) {
+                    roughnessSlider.value = material.pbrMetallicRoughness.roughnessFactor;
+                    roughnessValue.textContent = material.pbrMetallicRoughness.roughnessFactor.toFixed(2);
+                }
+            }
+        });
+
+        // Обработчик сброса всех материалов к исходным значениям
+        resetAllButton.addEventListener('click', function() {
+            const materials = modelViewer.model.materials;
+
+            materials.forEach(material => {
+                const originalData = originalMaterials[material.name];
+                if (originalData) {
+                    material.pbrMetallicRoughness.setBaseColorFactor(originalData.baseColorFactor);
+                    material.pbrMetallicRoughness.setMetallicFactor(originalData.metallicFactor);
+                    material.pbrMetallicRoughness.setRoughnessFactor(originalData.roughnessFactor);
+                    material.setAlphaMode(originalData.alphaMode);
+                }
+            });
+
+            console.log('Все материалы сброшены к исходным значениям');
+
+            // Обновляем UI для текущего выбранного материала
+            materialSelect.dispatchEvent(new Event('change'));
+        });
+
+        // Обработчик загрузки модели
+        modelViewer.addEventListener('load', () => {
+            // Скрываем индикатор загрузки
+            loadingIndicator.style.display = 'none';
+
+            // Получаем список материалов
+            const materials = modelViewer.model.materials;
+            console.log('Загружено материалов:', materials.length);
+
+            // Получаем информацию о формате модели
+            let modelFormat = 'Неизвестный формат';
+            if (modelViewer.src.endsWith('.glb')) {
+                modelFormat = 'GLB (бинарный)';
+            } else if (modelViewer.src.endsWith('.gltf')) {
+                modelFormat = 'glTF (JSON)';
+            }
+
+            // Обновляем информацию о модели
+            modelInfo.innerHTML = `
+                <strong>Формат:</strong> ${modelFormat}<br>
+                <strong>Материалы:</strong> ${materials.length}<br>
+                <strong>Анимации:</strong> ${modelViewer.availableAnimations?.length || 0}
+            `;
+
+            // Сохраняем исходные данные материалов и заполняем селект
+            materialSelect.innerHTML = '<option value="">Выберите материал...</option>';
+
+            materials.forEach((material, index) => {
+                const materialName = material.name || `Материал ${index}`;
+
+                // Сохраняем исходные данные материала
+                originalMaterials[materialName] = {
+                    baseColorFactor: material.pbrMetallicRoughness?.baseColorFactor?.slice() || [1, 1, 1, 1],
+                    metallicFactor: material.pbrMetallicRoughness?.metallicFactor || 0,
+                    roughnessFactor: material.pbrMetallicRoughness?.roughnessFactor || 0.5,
+                    alphaMode: material.alphaMode || 'OPAQUE'
+                };
+
+                // Добавляем материал в выпадающий список
+                const option = document.createElement('option');
+                option.value = materialName;
+                option.textContent = materialName;
+                materialSelect.appendChild(option);
+
+                console.log(`Материал ${index}: ${materialName}`);
+
+                // Исправляем прозрачность для материалов с низким Alpha
+                if (material.pbrMetallicRoughness?.baseColorFactor) {
+                    const alpha = material.pbrMetallicRoughness.baseColorFactor[3];
+                    if (alpha < 1.0 && material.alphaMode === 'OPAQUE') {
+                        console.log(`Исправляем режим прозрачности для ${materialName} (Alpha=${alpha})`);
+                        material.setAlphaMode('BLEND');
+                    }
+                }
+            });
+
+            // Настраиваем первый материал в списке
+            if (materials.length > 0) {
+                materialSelect.selectedIndex = 1; // Первый материал после placeholder
+                materialSelect.dispatchEvent(new Event('change'));
+            }
+        });
+
+        // Обработчик ошибки загрузки
+        modelViewer.addEventListener('error', (error) => {
+            console.error('Ошибка загрузки модели:', error);
+            loadingIndicator.textContent = 'Ошибка загрузки модели';
+            loadingIndicator.style.color = 'red';
+
+            modelInfo.innerHTML = `
+                <span style="color: red;">Ошибка загрузки модели</span><br>
+                Проверьте формат файла и повторите попытку.
+            `;
+        });
+
+        // Обработчик перетаскивания файлов
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            dropZone.classList.add('active');
+        });
+
+        dropZone.addEventListener('dragleave', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            dropZone.classList.remove('active');
+        });
+
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            dropZone.classList.remove('active');
+
+            if (event.dataTransfer.files.length > 0) {
+                const file = event.dataTransfer.files[0];
+                loadModelFromFile(file);
+            }
+        });
+
+        // Обработчик клика по зоне загрузки
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Обработчик выбора файла
+        fileInput.addEventListener('change', (event) => {
+            if (event.target.files.length > 0) {
+                const file = event.target.files[0];
+                loadModelFromFile(file);
+            }
+        });
+
+        // Обработчик выбора примера модели
+        exampleModels.addEventListener('change', function() {
+            const selectedModel = this.value;
+            if (selectedModel) {
+                loadModelFromUrl(selectedModel);
+            }
+        });
+
+        // Функция загрузки модели из файла
+        function loadModelFromFile(file) {
+            if (!file.name.toLowerCase().endsWith('.glb') && !file.name.toLowerCase().endsWith('.gltf')) {
+                alert('Пожалуйста, выберите файл в формате GLB или glTF');
+                return;
+            }
+
+            // Показываем индикатор загрузки
+            loadingIndicator.style.display = 'block';
+            loadingIndicator.textContent = 'Загрузка 3D модели...';
+            loadingIndicator.style.color = 'white';
+
+            // Очищаем предыдущую модель
+            originalMaterials = {};
+
+            // Создаем URL для файла
+            const url = URL.createObjectURL(file);
+
+            // Загружаем модель
+            modelViewer.src = url;
+        }
+
+        // Функция загрузки модели по URL
+        function loadModelFromUrl(url) {
+            // Показываем индикатор загрузки
+            loadingIndicator.style.display = 'block';
+            loadingIndicator.textContent = 'Загрузка 3D модели...';
+            loadingIndicator.style.color = 'white';
+
+            // Очищаем предыдущую модель
+            originalMaterials = {};
+
+            // Загружаем модель
+            modelViewer.src = url;
+        }
+
+        // Загружаем модель при загрузке страницы
+        window.addEventListener('DOMContentLoaded', () => {
+            // По умолчанию загружаем модель из примеров
+            const defaultModel = 'models/anime_girl.glb';
+            loadModelFromUrl(defaultModel);
+        });
+    </script>
+</body>
+</html>
+

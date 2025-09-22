@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Улучшенный просмотр 3D модели</title>
+    <script type="module" src="https://unpkg.com/@google/model-viewer@3.1.1/dist/model-viewer.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            max-width: 300px;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            border-radius: 5px;
+        }
+        input[type="range"] {
+            margin: 10px 0;
+        }
+        button {
+            padding: 8px 15px;
+            background: linear-gradient(to right, #4d4dff, #9494ff);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background: linear-gradient(to right, #3d3dff, #8484ff);
+        }
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+        }
+        .color-picker-container {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .color-picker-container input[type="color"] {
+            width: 40px;
+            height: 40px;
+            margin-right: 10px;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            color: #fff;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">Загрузка 3D модели...</div>
+
+    <model-viewer
+        id="model"
+        src="models/anime_girl.glb"
+        camera-controls
+        exposure="1.2"
+        camera-orbit="0deg 75deg 105%"
+        auto-rotate="false"
+        shadow-intensity="1"
+        environment-image="neutral"
+        shadow-softness="1"
+        tone-mapping="aces"
+        field-of-view="30deg"
+        min-camera-orbit="auto auto 50%"
+        max-camera-orbit="auto auto 400%"
+        style="width: 100%; height: 100vh; background-color: #1a1a1a;"
+    ></model-viewer>
+
+    <div class="controls">
+        <h3>Управление отображением</h3>
+
+        <div class="control-group">
+            <div class="control-label">Материал</div>
+            <select id="material-select">
+                <option value="">Выберите материал...</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Основной цвет</div>
+            <div class="color-picker-container">
+                <input type="color" id="color-picker" value="#ffffff">
+                <span id="color-value">#FFFFFF</span>
+            </div>
+            <button id="apply-color">Применить цвет</button>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Прозрачность: <span id="alpha-value">1.0</span></div>
+            <input type="range" id="alpha-slider" min="0" max="1" step="0.01" value="1">
+            <button id="apply-alpha">Применить прозрачность</button>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Металличность: <span id="metallic-value">0</span></div>
+            <input type="range" id="metallic-slider" min="0" max="1" step="0.01" value="0">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Шероховатость: <span id="roughness-value">0.5</span></div>
+            <input type="range" id="roughness-slider" min="0" max="1" step="0.01" value="0.5">
+        </div>
+
+        <div class="control-group">
+            <button id="apply-material-changes">Применить изменения</button>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Общая экспозиция: <span id="exposure-value">1.2</span></div>
+            <input type="range" id="exposure-slider" min="0" max="3" step="0.1" value="1.2">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Фон</div>
+            <select id="environment-select">
+                <option value="neutral">Нейтральный</option>
+                <option value="legacy">Классический</option>
+                <option value="sunset">Закат</option>
+                <option value="">Пустой</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">Режим отображения</div>
+            <select id="variant-select">
+                <option value="">Стандартный</option>
+                <option value="wireframe">Каркас</option>
+                <option value="normals">Normal maps</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="instructions">
+        <p>Управление: левая кнопка мыши - вращение, колесо - масштаб, правая кнопка - перемещение</p>
+    </div>
+
+    <script>
+        const modelViewer = document.getElementById('model');
+        const materialSelect = document.getElementById('material-select');
+        const colorPicker = document.getElementById('color-picker');
+        const colorValue = document.getElementById('color-value');
+        const alphaSlider = document.getElementById('alpha-slider');
+        const alphaValue = document.getElementById('alpha-value');
+        const metallicSlider = document.getElementById('metallic-slider');
+        const metallicValue = document.getElementById('metallic-value');
+        const roughnessSlider = document.getElementById('roughness-slider');
+        const roughnessValue = document.getElementById('roughness-value');
+        const exposureSlider = document.getElementById('exposure-slider');
+        const exposureValue = document.getElementById('exposure-value');
+        const environmentSelect = document.getElementById('environment-select');
+        const variantSelect = document.getElementById('variant-select');
+        const applyColorButton = document.getElementById('apply-color');
+        const applyAlphaButton = document.getElementById('apply-alpha');
+        const applyMaterialChangesButton = document.getElementById('apply-material-changes');
+        const loadingIndicator = document.getElementById('loading');
+
+        // Хранилище для исходных данных материалов
+        const originalMaterials = {};
+
+        // Функция для преобразования RGB в HEX
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(x => {
+                const hex = Math.round(x * 255).toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            }).join('');
+        }
+
+        // Функция для преобразования HEX в RGB
+        function hexToRgb(hex) {
+            // Удаляем # если есть
+            hex = hex.replace(/^#/, '');
+
+            // Парсим компоненты
+            let bigint = parseInt(hex, 16);
+            let r = (bigint >> 16) & 255;
+            let g = (bigint >> 8) & 255;
+            let b = bigint & 255;
+
+            // Преобразуем в диапазон 0-1 для THREE.js
+            return [r / 255, g / 255, b / 255];
+        }
+
+        // Обработчик изменения цвета
+        colorPicker.addEventListener('input', function() {
+            colorValue.textContent = this.value.toUpperCase();
+        });
+
+        // Обработчики изменения слайдеров
+        alphaSlider.addEventListener('input', function() {
+            alphaValue.textContent = parseFloat(this.value).toFixed(2);
+        });
+
+        metallicSlider.addEventListener('input', function() {
+            metallicValue.textContent = parseFloat(this.value).toFixed(2);
+        });
+
+        roughnessSlider.addEventListener('input', function() {
+            roughnessValue.textContent = parseFloat(this.value).toFixed(2);
+        });
+
+        exposureSlider.addEventListener('input', function() {
+            const value = parseFloat(this.value).toFixed(1);
+            exposureValue.textContent = value;
+            modelViewer.exposure = value;
+        });
+
+        // Обработчик изменения фона
+        environmentSelect.addEventListener('change', function() {
+            modelViewer.environmentImage = this.value;
+        });
+
+        // Обработчик изменения режима отображения
+        variantSelect.addEventListener('change', function() {
+            modelViewer.variantName = this.value;
+        });
+
+        // Применение цвета к материалу
+        applyColorButton.addEventListener('click', function() {
+            const selectedMaterial = materialSelect.value;
+            if (!selectedMaterial) {
+                alert('Выберите материал');
+                return;
+            }
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material) {
+                const [r, g, b] = hexToRgb(colorPicker.value);
+                material.pbrMetallicRoughness.setBaseColorFactor([r, g, b, parseFloat(alphaSlider.value)]);
+                console.log(`Применен цвет ${colorPicker.value} к материалу ${selectedMaterial}`);
+            }
+        });
+
+        // Применение прозрачности к материалу
+        applyAlphaButton.addEventListener('click', function() {
+            const selectedMaterial = materialSelect.value;
+            if (!selectedMaterial) {
+                alert('Выберите материал');
+                return;
+            }
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material) {
+                const baseColorFactor = material.pbrMetallicRoughness.baseColorFactor;
+                const alpha = parseFloat(alphaSlider.value);
+
+                // Если альфа меньше 1, устанавливаем режим прозрачности BLEND
+                if (alpha < 1.0) {
+                    material.setAlphaMode('BLEND');
+                } else {
+                    material.setAlphaMode('OPAQUE');
+                }
+
+                // Обновляем альфа-компонент в цвете
+                if (baseColorFactor) {
+                    material.pbrMetallicRoughness.setBaseColorFactor(
+                        [baseColorFactor[0], baseColorFactor[1], baseColorFactor[2], alpha]
+                    );
+                }
+
+                console.log(`Применена прозрачность ${alpha} к материалу ${selectedMaterial}`);
+            }
+        });
+
+        // Применение всех изменений к материалу
+        applyMaterialChangesButton.addEventListener('click', function() {
+            const selectedMaterial = materialSelect.value;
+            if (!selectedMaterial) {
+                alert('Выберите материал');
+                return;
+            }
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material) {
+                // Получаем текущий цвет материала
+                const currentColor = material.pbrMetallicRoughness.baseColorFactor || [1, 1, 1, 1];
+                const [r, g, b] = hexToRgb(colorPicker.value);
+                const alpha = parseFloat(alphaSlider.value);
+                const metallic = parseFloat(metallicSlider.value);
+                const roughness = parseFloat(roughnessSlider.value);
+
+                // Если альфа меньше 1, устанавливаем режим прозрачности BLEND
+                if (alpha < 1.0) {
+                    material.setAlphaMode('BLEND');
+                } else {
+                    material.setAlphaMode('OPAQUE');
+                }
+
+                // Применяем все изменения
+                material.pbrMetallicRoughness.setBaseColorFactor([r, g, b, alpha]);
+                material.pbrMetallicRoughness.setMetallicFactor(metallic);
+                material.pbrMetallicRoughness.setRoughnessFactor(roughness);
+
+                console.log(`Применены все изменения к материалу ${selectedMaterial}`);
+            }
+        });
+
+        // Обработчик изменения выбора материала
+        materialSelect.addEventListener('change', function() {
+            const selectedMaterial = this.value;
+            if (!selectedMaterial) return;
+
+            const material = modelViewer.model.materials.find(m => m.name === selectedMaterial);
+            if (material && material.pbrMetallicRoughness) {
+                // Обновляем цвет
+                if (material.pbrMetallicRoughness.baseColorFactor) {
+                    const [r, g, b, a] = material.pbrMetallicRoughness.baseColorFactor;
+                    colorPicker.value = rgbToHex(r, g, b);
+                    colorValue.textContent = colorPicker.value.toUpperCase();
+                    alphaSlider.value = a;
+                    alphaValue.textContent = a.toFixed(2);
+                }
+
+                // Обновляем металличность и шероховатость
+                if (material.pbrMetallicRoughness.metallicFactor !== undefined) {
+                    metallicSlider.value = material.pbrMetallicRoughness.metallicFactor;
+                    metallicValue.textContent = material.pbrMetallicRoughness.metallicFactor.toFixed(2);
+                }
+
+                if (material.pbrMetallicRoughness.roughnessFactor !== undefined) {
+                    roughnessSlider.value = material.pbrMetallicRoughness.roughnessFactor;
+                    roughnessValue.textContent = material.pbrMetallicRoughness.roughnessFactor.toFixed(2);
+                }
+            }
+        });
+
+        // Обработчик загрузки модели
+        modelViewer.addEventListener('load', () => {
+            // Скрываем индикатор загрузки
+            loadingIndicator.style.display = 'none';
+
+            // Получаем список материалов
+            const materials = modelViewer.model.materials;
+            console.log('Загружено материалов:', materials.length);
+
+            // Сохраняем исходные данные материалов и заполняем селект
+            materialSelect.innerHTML = '<option value="">Выберите материал...</option>';
+
+            materials.forEach((material, index) => {
+                const materialName = material.name || `Материал ${index}`;
+
+                // Сохраняем исходные данные материала
+                originalMaterials[materialName] = {
+                    baseColorFactor: material.pbrMetallicRoughness?.baseColorFactor?.slice() || [1, 1, 1, 1],
+                    metallicFactor: material.pbrMetallicRoughness?.metallicFactor || 0,
+                    roughnessFactor: material.pbrMetallicRoughness?.roughnessFactor || 0.5,
+                    alphaMode: material.alphaMode || 'OPAQUE'
+                };
+
+                // Добавляем материал в выпадающий список
+                const option = document.createElement('option');
+                option.value = materialName;
+                option.textContent = materialName;
+                materialSelect.appendChild(option);
+
+                console.log(`Материал ${index}: ${materialName}`);
+
+                // Исправляем прозрачность для материалов с низким Alpha
+                if (material.pbrMetallicRoughness?.baseColorFactor) {
+                    const alpha = material.pbrMetallicRoughness.baseColorFactor[3];
+                    if (alpha < 1.0 && material.alphaMode === 'OPAQUE') {
+                        console.log(`Исправляем режим прозрачности для ${materialName} (Alpha=${alpha})`);
+                        material.setAlphaMode('BLEND');
+                    }
+                }
+            });
+
+            // Настраиваем первый материал в списке
+            if (materials.length > 0) {
+                materialSelect.selectedIndex = 1; // Первый материал после placeholder
+                materialSelect.dispatchEvent(new Event('change'));
+            }
+        });
+
+        // Обработчик ошибки загрузки
+        modelViewer.addEventListener('error', (error) => {
+            console.error('Ошибка загрузки модели:', error);
+            loadingIndicator.textContent = 'Ошибка загрузки модели';
+            loadingIndicator.style.color = 'red';
+        });
+
+        // Кнопка для сброса всех материалов к исходным значениям
+        const resetButton = document.createElement('button');
+        resetButton.textContent = 'Сбросить все материалы';
+        resetButton.style.marginTop = '20px';
+        resetButton.style.width = '100%';
+        resetButton.style.background = 'linear-gradient(to right, #ff4d4d, #ff9494)';
+
+        resetButton.addEventListener('click', () => {
+            const materials = modelViewer.model.materials;
+
+            materials.forEach(material => {
+                const originalData = originalMaterials[material.name];
+                if (originalData) {
+                    material.pbrMetallicRoughness.setBaseColorFactor(originalData.baseColorFactor);
+                    material.pbrMetallicRoughness.setMetallicFactor(originalData.metallicFactor);
+                    material.pbrMetallicRoughness.setRoughnessFactor(originalData.roughnessFactor);
+                    material.setAlphaMode(originalData.alphaMode);
+                }
+            });
+
+            console.log('Все материалы сброшены к исходным значениям');
+
+            // Обновляем UI для текущего выбранного материала
+            materialSelect.dispatchEvent(new Event('change'));
+        });
+
+        document.querySelector('.controls').appendChild(resetButton);
+    </script>
+</body>
+</html>
+

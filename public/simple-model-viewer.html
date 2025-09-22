@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Просмотр 3D модели с поддержкой внешних текстур</title>
+    <!-- Импортируем более стабильную версию библиотеки model-viewer с правильной настройкой для WebAssembly -->
+    <script type="module" src="https://unpkg.com/@google/model-viewer@3.0.2/dist/model-viewer.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            color: #fff;
+            z-index: 10;
+        }
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+        }
+        #error-message {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            display: none;
+            z-index: 101;
+        }
+        /* Не используем will-change, чтобы избежать проблем с памятью */
+        model-viewer {
+            width: 100%;
+            height: 100vh;
+            background-color: #1a1a1a;
+        }
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .control-button {
+            padding: 8px 12px;
+            background-color: #444;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .control-button:hover {
+            background-color: #666;
+        }
+        .animation-select {
+            padding: 8px;
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+        /* Новые стили для панели с текстурами */
+        .texture-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+            width: 300px;
+            max-height: 80vh;
+            overflow-y: auto;
+            transform: translateX(310px);
+            transition: transform 0.3s ease-in-out;
+        }
+        .texture-panel.open {
+            transform: translateX(0);
+        }
+        .texture-panel-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 99;
+        }
+        .texture-item {
+            margin-bottom: 15px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 15px;
+        }
+        .texture-preview {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+            margin-bottom: 8px;
+            background-color: #333;
+            border-radius: 4px;
+        }
+        .texture-drop-area {
+            border: 2px dashed #555;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .texture-drop-area:hover, .texture-drop-area.dragover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .material-select {
+            width: 100%;
+            padding: 8px;
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .texture-type-select {
+            width: 100%;
+            padding: 8px;
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">Загрузка 3D модели...</div>
+    <div id="error-message"></div>
+    <div class="instructions">
+        <p>Управление: левая кнопка мыши - вращение, колесо - масштаб</p>
+        <p><small>Перетащите файл .GLB сюда для просмотра другой модели</small></p>
+    </div>
+
+    <!-- Кнопка для открытия панели текстур -->
+    <div class="texture-panel-toggle" id="texture-panel-toggle">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+        <span>Текстуры</span>
+    </div>
+
+    <!-- Панель для загрузки и управления текстурами -->
+    <div class="texture-panel" id="texture-panel">
+        <h3>Управление текстурами</h3>
+
+        <div class="texture-drop-area" id="texture-drop-area">
+            <p>Перетащите текстуру сюда или нажмите для выбора файла</p>
+            <input type="file" id="texture-file-input" style="display: none" accept="image/*">
+        </div>
+
+        <div>
+            <select id="material-select" class="material-select">
+                <option value="">Выберите материал...</option>
+            </select>
+
+            <select id="texture-type-select" class="texture-type-select">
+                <option value="map">Основная текстура (Base Color)</option>
+                <option value="normalMap">Карта нормалей (Normal Map)</option>
+                <option value="roughnessMap">Карта шероховатости (Roughness)</option>
+                <option value="metalnessMap">Карта металличности (Metalness)</option>
+                <option value="emissiveMap">Карта свечения (Emissive)</option>
+            </select>
+
+            <button id="apply-texture-button" class="control-button">Применить текстуру</button>
+        </div>
+
+        <div id="texture-list">
+            <!-- Здесь будут отображаться загруженные текстуры -->
+            <div class="texture-item" style="display: none;" id="texture-item-template">
+                <img class="texture-preview" src="" alt="Texture Preview">
+                <div>
+                    <strong class="texture-name">texture.jpg</strong>
+                    <p class="texture-info">512x512, 128KB</p>
+                </div>
+                <div>
+                    <button class="control-button texture-apply-btn">Применить</button>
+                    <button class="control-button texture-remove-btn">Удалить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Добавляем панель управления для позы и анимации -->
+    <div class="controls" id="controls">
+        <button id="reset-pose" class="control-button">Сбросить позу</button>
+        <button id="default-pose" class="control-button">Поза по умолчанию</button>
+        <select id="animation-select" class="animation-select" style="display: none;">
+            <option value="">Выберите анимацию</option>
+        </select>
+        <div id="animation-controls" style="display: none;">
+            <button id="play-animation" class="control-button">Запустить</button>
+            <button id="pause-animation" class="control-button">Пауза</button>
+        </div>
+    </div>
+
+    <!-- Упрощенный просмотрщик 3D модели с базовыми настройками -->
+    <model-viewer
+        id="viewer"
+        src="models/anime_girl.glb"
+        alt="3D модель аниме девочки"
+        camera-controls
+        shadow-intensity="1"
+        exposure="1.2"
+        style="width: 100%; height: 100vh;"
+        autoplay
+        animation-name=""
+        auto-rotate="false"
+        camera-orbit="0deg 75deg 105%"
+        field-of-view="30deg"
+        min-camera-orbit="auto auto 50%"
+        max-camera-orbit="auto auto 400%"
+    ></model-viewer>
+
+    <script>
+        const modelViewer = document.getElementById('viewer');
+        const errorMessage = document.getElementById('error-message');
+        const loadingMessage = document.getElementById('loading');
+        const animationSelect = document.getElementById('animation-select');
+        const animationControls = document.getElementById('animation-controls');
+        const playButton = document.getElementById('play-animation');
+        const pauseButton = document.getElementById('pause-animation');
+        const resetPoseButton = document.getElementById('reset-pose');
+        const defaultPoseButton = document.getElementById('default-pose');
+
+        // Новые элементы для работы с текстурами
+        const texturePanelToggle = document.getElementById('texture-panel-toggle');
+        const texturePanel = document.getElementById('texture-panel');
+        const textureDropArea = document.getElementById('texture-drop-area');
+        const textureFileInput = document.getElementById('texture-file-input');
+        const materialSelect = document.getElementById('material-select');
+        const textureTypeSelect = document.getElementById('texture-type-select');
+        const applyTextureButton = document.getElementById('apply-texture-button');
+        const textureList = document.getElementById('texture-list');
+        const textureItemTemplate = document.getElementById('texture-item-template');
+
+        let initialPoseApplied = false;
+        let availableAnimations = [];
+        let defaultPose = null;
+
+        // Хранилище загруженных текстур
+        const loadedTextures = {};
+
+        // Функция для отображения/скрытия панели текстур
+        texturePanelToggle.addEventListener('click', () => {
+            texturePanel.classList.toggle('open');
+        });
+
+        // Функции для загрузки текстур через перетаскивание
+        textureDropArea.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            textureDropArea.classList.add('dragover');
+        });
+
+        textureDropArea.addEventListener('dragleave', () => {
+            textureDropArea.classList.remove('dragover');
+        });
+
+        textureDropArea.addEventListener('drop', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            textureDropArea.classList.remove('dragover');
+
+            if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+                handleTextureFile(event.dataTransfer.files[0]);
+            }
+        });
+
+        // Загрузка текстуры через клик
+        textureDropArea.addEventListener('click', () => {
+            textureFileInput.click();
+        });
+
+        textureFileInput.addEventListener('change', (event) => {
+            if (event.target.files && event.target.files.length > 0) {
+                handleTextureFile(event.target.files[0]);
+            }
+        });
+
+        // Функция обработки загруженной текстуры
+        function handleTextureFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Пожалуйста, выберите файл изображения (JPG, PNG, etc.)');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const textureDataUrl = e.target.result;
+
+                // Создаем элемент превью текстуры
+                const textureItem = textureItemTemplate.cloneNode(true);
+                textureItem.style.display = 'block';
+                textureItem.id = `texture-item-${Date.now()}`;
+
+                // Находим элементы внутри шаблона
+                const texturePreview = textureItem.querySelector('.texture-preview');
+                const textureName = textureItem.querySelector('.texture-name');
+                const textureInfo = textureItem.querySelector('.texture-info');
+                const applyBtn = textureItem.querySelector('.texture-apply-btn');
+                const removeBtn = textureItem.querySelector('.texture-remove-btn');
+
+                // Заполняем информацией
+                texturePreview.src = textureDataUrl;
+                textureName.textContent = file.name;
+
+                // Получаем информацию о размерах изображения
+                const img = new Image();
+                img.onload = () => {
+                    textureInfo.textContent = `${img.width}x${img.height}, ${formatFileSize(file.size)}`;
+                };
+                img.src = textureDataUrl;
+
+                // Сохраняем текстуру в хранилище
+                const textureId = `texture-${Date.now()}`;
+                loadedTextures[textureId] = {
+                    id: textureId,
+                    name: file.name,
+                    url: textureDataUrl,
+                    file: file,
+                    element: textureItem
+                };
+
+                // Настраиваем кнопки
+                applyBtn.addEventListener('click', () => {
+                    const selectedMaterial = materialSelect.value;
+                    const selectedTextureType = textureTypeSelect.value;
+                    if (selectedMaterial) {
+                        applyTextureToModel(textureDataUrl, selectedMaterial, selectedTextureType);
+                    } else {
+                        alert('Пожалуйста, выберите материал для применения текстуры');
+                    }
+                });
+
+                removeBtn.addEventListener('click', () => {
+                    textureList.removeChild(textureItem);
+                    delete loadedTextures[textureId];
+                });
+
+                // Добавляем в список
+                textureList.appendChild(textureItem);
+            };
+
+            reader.readAsDataURL(file);
+        }
+
+        // Функция для форматирования размера файла
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' байт';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' КБ';
+            else return (bytes / 1048576).toFixed(1) + ' МБ';
+        }
+
+        // Функция для применения текстуры к модели
+        function applyTextureToModel(textureUrl, materialName, textureType) {
+            if (!modelViewer.model) {
+                alert('Модель еще не загружена');
+                return;
+            }
+
+            // Создаем текстуру из URL
+            const texture = new Image();
+            texture.src = textureUrl;
+            texture.onload = () => {
+                try {
+                    const material = modelViewer.model.materials.find(m => m.name === materialName);
+                    if (!material) {
+                        alert(`Материал ${materialName} не найден в модели`);
+                        return;
+                    }
+
+                    // Клонируем текстуру для предотвращения проблем с кэшированием
+                    const updatedTexture = texture.cloneNode();
+
+                    // Применяем текстуру к выбранному материалу
+                    const textureProperty = {};
+                    textureProperty[textureType] = updatedTexture;
+
+                    material.setAlphaMode('BLEND'); // Разрешаем прозрачность для всех измененных материалов
+                    material.pbrMetallicRoughness.setBaseColorFactor([1, 1, 1, 1]); // Сбрасываем цвет
+
+                    // Применяем текстуру к материалу
+                    material.pbrMetallicRoughness[textureType] = textureProperty[textureType];
+
+                    console.log(`Текстура применена к материалу ${materialName}, тип: ${textureType}`);
+                } catch (error) {
+                    console.error('Ошибка при применении текстуры:', error);
+                    alert(`Ошибка при применении текстуры: ${error.message}`);
+                }
+            };
+        }
+
+        // Обработка нажатия на кнопку применения текстуры
+        applyTextureButton.addEventListener('click', () => {
+            const selectedMaterialName = materialSelect.value;
+            const selectedTextureType = textureTypeSelect.value;
+            const selectedTextureId = Object.keys(loadedTextures)[0]; // Берем первую загруженную текстуру
+
+            if (!selectedMaterialName) {
+                alert('Пожалуйста, выберите материал');
+                return;
+            }
+
+            if (!selectedTextureId) {
+                alert('Пожалуйста, загрузите текстуру');
+                return;
+            }
+
+            const texture = loadedTextures[selectedTextureId];
+            applyTextureToModel(texture.url, selectedMaterialName, selectedTextureType);
+        });
+
+        // Обработка загрузки модели
+        modelViewer.addEventListener('load', function() {
+            loadingMessage.style.display = 'none';
+            console.log('Модель загружена успешно!');
+
+            // Проверяем наличие материалов и заполняем выпадающий список
+            if (modelViewer.model) {
+                console.log('Модель содержит следующие материалы:');
+                const materials = modelViewer.model.materials;
+
+                // Очищаем список материалов
+                materialSelect.innerHTML = '<option value="">Выберите материал...</option>';
+
+                if (materials && materials.length) {
+                    materials.forEach((material, index) => {
+                        const materialName = material.name || `Материал ${index}`;
+                        console.log(`Материал ${index}: ${materialName}`);
+
+                        // Добавляем материал в выпадающий список
+                        const option = document.createElement('option');
+                        option.value = material.name;
+                        option.textContent = materialName;
+                        materialSelect.appendChild(option);
+                    });
+
+                    // Показываем панель текстур, если есть материалы
+                    texturePanel.classList.add('open');
+                } else {
+                    console.log('Материалы не найдены');
+                }
+
+                // Проверяем наличие анимаций
+                const animations = modelViewer.availableAnimations;
+                if (animations && animations.length) {
+                    availableAnimations = animations;
+                    console.log('Найдены анимации:', animations);
+
+                    // Заполняем селект анимациями
+                    animations.forEach((animationName, index) => {
+                        const option = document.createElement('option');
+                        option.value = animationName;
+                        option.textContent = `Анимация ${index + 1}: ${animationName}`;
+                        animationSelect.appendChild(option);
+                    });
+
+                    // Показываем элементы управления анимацией
+                    animationSelect.style.display = 'block';
+                    animationControls.style.display = 'flex';
+
+                    // Сохраняем начальное состояние как позу по умолчанию
+                    try {
+                        // Ждем 500мс чтобы модель полностью инициализировалась
+                        setTimeout(() => {
+                            try {
+                                const currentAnimationName = modelViewer.animationName;
+                                // Сначала отключаем все анимации
+                                modelViewer.animationName = undefined;
+
+                                // Применяем позу по умолчанию из модели (первый кадр первой анимации)
+                                if (animations.length > 0) {
+                                    modelViewer.animationName = animations[0];
+                                    modelViewer.currentTime = 0;
+
+                                    // Останавливаем анимацию, чтобы зафиксировать позу
+                                    setTimeout(() => {
+                                        modelViewer.paused = true;
+                                        defaultPose = modelViewer.currentTime;
+                                        initialPoseApplied = true;
+                                        console.log('Начальная поза применена');
+
+                                        // Возвращаем предыдущую анимацию, если она была
+                                        if (currentAnimationName) {
+                                            modelViewer.animationName = currentAnimationName;
+                                            modelViewer.paused = false;
+                                        } else {
+                                            modelViewer.animationName = undefined;
+                                        }
+                                    }, 100);
+                                }
+                            } catch (error) {
+                                console.error('Ошибка при установке начальной позы:', error);
+                            }
+                        }, 500);
+                    } catch (error) {
+                        console.error('Ошибка при обработке анимаций:', error);
+                    }
+                } else {
+                    console.log('Анимации не найдены');
+                }
+            }
+        });
+
+        // Обработка ошибки загрузки
+        modelViewer.addEventListener('error', function(event) {
+            console.error('Ошибка загрузки модели:', event);
+            loadingMessage.style.display = 'none';
+            errorMessage.style.display = 'block';
+            errorMessage.textContent = 'Ошибка загрузки модели. Проверьте консоль для деталей.';
+
+            // Показываем больше информации об ошибке
+            if (event.detail && event.detail.sourceError) {
+                console.error('Исходная ошибка:', event.detail.sourceError);
+            }
+        });
+
+        // Обработчики для кнопок управления анимацией
+        animationSelect.addEventListener('change', function() {
+            const selectedAnimation = this.value;
+            if (selectedAnimation) {
+                modelViewer.animationName = selectedAnimation;
+                modelViewer.play();
+            } else {
+                modelViewer.animationName = undefined;
+            }
+        });
+
+        playButton.addEventListener('click', function() {
+            if (modelViewer.animationName) {
+                modelViewer.play();
+            } else if (availableAnimations.length > 0) {
+                modelViewer.animationName = availableAnimations[0];
+                modelViewer.play();
+            }
+        });
+
+        pauseButton.addEventListener('click', function() {
+            modelViewer.pause();
+        });
+
+        resetPoseButton.addEventListener('click', function() {
+            // Сбрасываем все анимации и позы
+            modelViewer.animationName = undefined;
+            // Сбрасываем позицию камеры
+            modelViewer.cameraOrbit = '0deg 75deg 105%';
+            modelViewer.fieldOfView = '30deg';
+        });
+
+        defaultPoseButton.addEventListener('click', function() {
+            // Применяем позу по умолчанию
+            if (availableAnimations.length > 0) {
+                const currentAnimationName = modelViewer.animationName;
+                modelViewer.animationName = availableAnimations[0];
+                modelViewer.pause();
+                modelViewer.currentTime = defaultPose || 0;
+
+                // Опционально - вернуть предыдущую анимацию через некоторое время
+                setTimeout(() => {
+                    if (currentAnimationName && currentAnimationName !== availableAnimations[0]) {
+                        modelViewer.animationName = currentAnimationName;
+                        modelViewer.play();
+                    }
+                }, 1000);
+            }
+        });
+
+        // Функция для поддержки drag-and-drop других GLB файлов
+        document.body.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            document.body.style.backgroundColor = '#2a2a2a'; // Визуальный эффект при перетаскивании
+        });
+
+        document.body.addEventListener('dragleave', (event) => {
+            document.body.style.backgroundColor = '#1a1a1a'; // Возвращаем цвет обратно
+        });
+
+        document.body.addEventListener('drop', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            document.body.style.backgroundColor = '#1a1a1a'; // Возвращаем цвет обратно
+
+            if (event.dataTransfer.items && event.dataTransfer.items.length > 0) {
+                const file = event.dataTransfer.items[0].getAsFile();
+                if (file && file.name.toLowerCase().endsWith('.glb')) {
+                    const url = URL.createObjectURL(file);
+
+                    // Сбрасываем состояние
+                    initialPoseApplied = false;
+                    availableAnimations = [];
+                    defaultPose = null;
+
+                    // Очищаем селект анимаций
+                    while (animationSelect.firstChild) {
+                        animationSelect.removeChild(animationSelect.firstChild);
+                    }
+
+                    // Добавляем опцию "Выберите анимацию"
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = "";
+                    defaultOption.textContent = "Выберите анимацию";
+                    animationSelect.appendChild(defaultOption);
+
+                    // Скрываем элементы управления анимацией
+                    animationSelect.style.display = 'none';
+                    animationControls.style.display = 'none';
+
+                    // Загружаем новую модель
+                    modelViewer.src = url;
+                    loadingMessage.style.display = 'block';
+                    errorMessage.style.display = 'none';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
