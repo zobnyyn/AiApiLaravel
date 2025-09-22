@@ -5,6 +5,7 @@
 ## Стек технологий
 
 - **Backend**: Laravel 12, PHP 8.2
+- **Frontend**: Vue
 - **База данных**: MySQL 
 - **API**: RESTful API с JSON-форматированием
 - **Аутентификация**: Laravel Sanctum (токены доступа)
